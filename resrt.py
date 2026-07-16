@@ -51,6 +51,7 @@ def walk_directory(directory: Path) -> None:
                     if not srt_name:
                         continue
                     elif srt_name == mp4_name:
+                        print()
                         print(f"{directory}/{path.name}: OK")
                         break
 
