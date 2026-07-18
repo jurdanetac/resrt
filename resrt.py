@@ -3,12 +3,14 @@
 import re
 import sys
 
+from difflib import SequenceMatcher
 from pathlib import Path
 
-from Levenshtein import ratio
+TOLERANCE = 0.60
 
-TOLERANCE = 0.65
 
+def compute_similarity(a, b):
+    return SequenceMatcher(isjunk=None, a=a, b=b).ratio()
 
 def extract_name_from_filename(file: Path) -> str | None:
     # look up year in filename
@@ -56,8 +58,9 @@ def walk_directory(directory: Path) -> None:
                         break
 
                     # check if this srt name matches the mp4 name
-                    similarity = ratio(mp4_name, srt_name)
+                    similarity = compute_similarity(mp4_name, srt_name)
                     similarity = round(similarity, 4)
+                    print(similarity)
 
                     # match
                     if similarity >= TOLERANCE:
