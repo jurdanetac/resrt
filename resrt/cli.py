@@ -24,14 +24,6 @@ class bcolors:
     UNDERLINE = "\033[4m"
 
 
-# read lists
-mp4, srt = [], []
-with open("../tests/mp4_list.txt", mode="r") as f:
-    mp4 = f.readlines()
-with open("../tests/srt_list.txt", mode="r") as f:
-    srt = f.readlines()
-
-
 def compute_str_similarity(a: str, b: str) -> float:
     """Returns float percentage of similarity between str a and b."""
 
@@ -81,24 +73,24 @@ def clean_filename(filename: str) -> str | None:
 
 
 def walk_directory(directory: Path) -> None:
-    """TODO"""
+    """Recursively traverses a directory tree using Pre-order DFS."""
 
     print(f"{bcolors.HEADER}{directory}/{bcolors.ENDC}")
 
-    for path in list(directory.iterdir()):
+    for path in directory.iterdir():
         if not path.exists():
-            print(f"Path does not exist: {path}")
+            print(f"{bcolors.WARNING}Path does not exist: {path}{bcolors.ENDC}")
             continue
 
-        # hidden
+        # Ignore hidden
         elif path.name.startswith("."):
             continue
 
-        # subdirectory, use recursion
+        # Subdirectory: dive deep instantly (DFS branch)
         elif path.is_dir():
             walk_directory(path)
 
-        # actual file
+        # File: Process file
         elif path.is_file():
             # mp4 detected, check if there's an srt for it in cwd
             if path.suffix == MP4_SUFFIX:
@@ -169,13 +161,6 @@ if __name__ == "__main__":
 
         directory = Path(sys.argv[1])
         walk_directory(directory)
-
-        # m = clean_filename(mp4[0])
-        # for s in srt:
-        #     cs = clean_filename(s)
-        #     sm = compute_str_similarity(m, cs)
-        #     if sm >= TOLERANCE:
-        #         print(m, cs, sm)
     except KeyboardInterrupt as e:
         print()
         sys.exit(0)
