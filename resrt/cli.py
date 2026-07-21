@@ -3,12 +3,14 @@
 import re
 import sys
 
+from pprint import pprint
+
 from difflib import SequenceMatcher
 from pathlib import Path
 
 TOLERANCE = 0.75
-MP4_SUFFIX = ".mp4"
-SRT_SUFFIX = ".srt"
+MP4 = ".mp4"
+SRT = ".srt"
 
 
 # Escape codes for colors in terminal, must be terminated with ENDC
@@ -30,7 +32,20 @@ def compute_str_similarity(a: str, b: str) -> float:
     return SequenceMatcher(isjunk=None, a=a, b=b).ratio()
 
 
-def clean_filename(filename: str) -> str | None:
+def strip_extension(filename: str) -> str:
+    return filename.rsplit(".", 1)[0]
+
+
+def is_filetype(filetype: str, filename: Path) -> bool:
+    extension = "." + filename.name.rsplit(".", 1)[1]
+
+    if extension == filetype:
+        return True
+
+    return False
+
+
+def clean_filename(filename: str) -> str:
     """Pre-processes media filenames for comparison by isolating the title text.
 
     Strips the file extension, standardizes punctuation separators into clean
@@ -56,7 +71,7 @@ def clean_filename(filename: str) -> str | None:
     """
 
     # Strip the extension from the filename
-    filename = filename.rsplit(".", 1)[0]
+    filename = strip_extension(filename)
 
     # Replace common separators such as dots, underscores, and dashes with spaces
     filename = re.sub(r"[\._\-]", " ", filename)
@@ -77,6 +92,8 @@ def walk_directory(directory: Path) -> None:
 
     print(f"{bcolors.HEADER}{directory}/{bcolors.ENDC}")
 
+    directories = {}
+
     for path in directory.iterdir():
         if not path.exists():
             print(f"{bcolors.WARNING}Path does not exist: {path}{bcolors.ENDC}")
@@ -86,29 +103,37 @@ def walk_directory(directory: Path) -> None:
         elif path.name.startswith("."):
             continue
 
+        cwd_subdirectories: list[Path] = list(directory.glob("**/"))
+        print(cwd_subdirectories)
+        return
+        cwd_mp4_files: list[Path] = []
+        # Get all .srt in cwd
+        cwd_srt_files: list[Path] = list(directory.glob("*" + SRT))
+
         # Subdirectory: dive deep instantly (DFS branch)
-        elif path.is_dir():
-            walk_directory(path)
+        if path.is_dir():
+            dir = path
+            walk_directory(dir)
 
         # File: Process file
         elif path.is_file():
+            file: Path = path
+            file_suffix: str = file.suffix.lower()
+
             # mp4 detected, check if there's an srt for it in cwd
-            if path.suffix == MP4_SUFFIX:
-                cleaned_mp4_name = clean_filename(path.name)
-                if not cleaned_mp4_name:
-                    continue
+            if file_suffix == MP4:
+                cwd_mp4_files.append(file)
+                cleaned_mp4_name = clean_filename(file.name)
 
-                srt_list = [f for f in list(directory.iterdir()) if f.suffix == ".srt"]
                 for srt in srt_list:
-                    cleaned_srt_name = clean_filename(srt.name)
-
-                    if not cleaned_srt_name:
-                        continue
-                    elif cleaned_srt_name == cleaned_mp4_name:
+                    # check done
+                    if strip_extension(path.name) == strip_extension(srt.name):
                         print(
                             f"{path.name}: {bcolors.BOLD}{bcolors.OKGREEN}OK{bcolors.ENDC}{bcolors.ENDC}"
                         )
                         break
+
+                    cleaned_srt_name = clean_filename(srt.name)
 
                     # check if this srt name matches the mp4 name
                     similarity = compute_str_similarity(
@@ -139,12 +164,14 @@ def walk_directory(directory: Path) -> None:
                                 )
 
                         if pair:
-                            new_srt_filename = path.name.replace(MP4_SUFFIX, SRT_SUFFIX)
+                            new_srt_filename = path.name.replace(MP4, SRT)
                             new_srt_path = srt.parent / new_srt_filename
                             # srt.rename(new_srt_path)
                             print(f"{srt.name} renamed to {new_srt_filename}")
                             print()
                             break
+            elif file_suffix == SRT:
+                cwd_srt_files.append(file)
 
         else:
             # special system file (symlink, socket, device, etc.)
@@ -160,7 +187,30 @@ if __name__ == "__main__":
             sys.exit(1)
 
         directory = Path(sys.argv[1])
-        walk_directory(directory)
+
+        all_paths = directory.rglob("*")
+
+        dictionary = {}
+        dictionary[directory] = {MP4: [], SRT: []}  # given directory
+
+        for path in all_paths:
+            if not path.is_file():
+                continue
+
+            file = path
+            file_dir = file.parent
+
+            if file_dir not in dictionary:
+                dictionary[file_dir] = {MP4: [], SRT: []}
+
+            if is_filetype(MP4, file):
+                dictionary[file_dir][MP4] = dictionary[file.parent][MP4] + [file]
+            elif is_filetype(SRT, file):
+                dictionary[file_dir][SRT] = dictionary[file.parent][SRT] + [file]
+
+        pprint(dictionary)
+
+        # walk_directory(directory)
     except KeyboardInterrupt as e:
         print()
         sys.exit(0)
