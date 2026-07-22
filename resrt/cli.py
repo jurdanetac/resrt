@@ -8,13 +8,12 @@ from pprint import pprint
 from difflib import SequenceMatcher
 from pathlib import Path
 
-TOLERANCE = 0.75
+TOLERANCE = 0.80
 MP4 = ".mp4"
 SRT = ".srt"
 
-
-# Escape codes for colors in terminal, must be terminated with ENDC
 class bcolors:
+    """Escape codes for colors in terminal, must be terminated with ENDC."""
     HEADER = "\033[95m"
     OKBLUE = "\033[94m"
     OKCYAN = "\033[96m"
@@ -32,20 +31,12 @@ def compute_str_similarity(a: str, b: str) -> float:
     return SequenceMatcher(isjunk=None, a=a, b=b).ratio()
 
 
-def strip_extension(filename: str) -> str:
-    return filename.rsplit(".", 1)[0]
+def is_filetype(filetype: str, file: Path) -> bool:
+    """Return bool indicating if file is of filetype by comparing its suffix."""
+    return file.suffix.lower() == filetype.lower()
 
 
-def is_filetype(filetype: str, filename: Path) -> bool:
-    extension = "." + filename.name.rsplit(".", 1)[1]
-
-    if extension == filetype:
-        return True
-
-    return False
-
-
-def clean_filename(filename: str) -> str:
+def clean_filename(file: Path) -> str:
     """Pre-processes media filenames for comparison by isolating the title text.
 
     Strips the file extension, standardizes punctuation separators into clean
@@ -53,7 +44,7 @@ def clean_filename(filename: str) -> str:
     and source groups) using precise word boundaries.
 
     Args:
-        filename: The raw file string to clean (e.g., 'The_Matrix_1080p.mp4').
+        file: The file 'Path' object
 
     Returns:
         A normalized, lowercase string containing only the essential elements
@@ -71,7 +62,7 @@ def clean_filename(filename: str) -> str:
     """
 
     # Strip the extension from the filename
-    filename = strip_extension(filename)
+    filename = file.stem
 
     # Replace common separators such as dots, underscores, and dashes with spaces
     filename = re.sub(r"[\._\-]", " ", filename)
@@ -87,97 +78,6 @@ def clean_filename(filename: str) -> str:
     return filename
 
 
-def walk_directory(directory: Path) -> None:
-    """Recursively traverses a directory tree using Pre-order DFS."""
-
-    print(f"{bcolors.HEADER}{directory}/{bcolors.ENDC}")
-
-    directories = {}
-
-    for path in directory.iterdir():
-        if not path.exists():
-            print(f"{bcolors.WARNING}Path does not exist: {path}{bcolors.ENDC}")
-            continue
-
-        # Ignore hidden
-        elif path.name.startswith("."):
-            continue
-
-        cwd_subdirectories: list[Path] = list(directory.glob("**/"))
-        print(cwd_subdirectories)
-        return
-        cwd_mp4_files: list[Path] = []
-        # Get all .srt in cwd
-        cwd_srt_files: list[Path] = list(directory.glob("*" + SRT))
-
-        # Subdirectory: dive deep instantly (DFS branch)
-        if path.is_dir():
-            dir = path
-            walk_directory(dir)
-
-        # File: Process file
-        elif path.is_file():
-            file: Path = path
-            file_suffix: str = file.suffix.lower()
-
-            # mp4 detected, check if there's an srt for it in cwd
-            if file_suffix == MP4:
-                cwd_mp4_files.append(file)
-                cleaned_mp4_name = clean_filename(file.name)
-
-                for srt in srt_list:
-                    # check done
-                    if strip_extension(path.name) == strip_extension(srt.name):
-                        print(
-                            f"{path.name}: {bcolors.BOLD}{bcolors.OKGREEN}OK{bcolors.ENDC}{bcolors.ENDC}"
-                        )
-                        break
-
-                    cleaned_srt_name = clean_filename(srt.name)
-
-                    # check if this srt name matches the mp4 name
-                    similarity = compute_str_similarity(
-                        cleaned_mp4_name, cleaned_srt_name
-                    )
-                    similarity = round(similarity, 4)
-
-                    # match
-                    if similarity >= TOLERANCE:
-                        print()
-                        print(f"MP4: {path.name} | {cleaned_mp4_name}")
-                        print(f"SRT: {srt.name} | {cleaned_srt_name}")
-                        print(f"{similarity*100:.2f}% match")
-
-                        # ask user whether this srt is the one
-                        pair = None
-                        while not type(pair) == bool:
-                            should_pair = input(f"pair? [y/n]: ").strip().lower()
-
-                            if should_pair == "y":
-                                pair = True
-                            elif should_pair == "n":
-                                pair = False
-                                print()
-                            else:
-                                print(
-                                    f"{bcolors.BOLD}{bcolors.FAIL}Invalid choice.{bcolors.ENDC}{bcolors.ENDC}"
-                                )
-
-                        if pair:
-                            new_srt_filename = path.name.replace(MP4, SRT)
-                            new_srt_path = srt.parent / new_srt_filename
-                            # srt.rename(new_srt_path)
-                            print(f"{srt.name} renamed to {new_srt_filename}")
-                            print()
-                            break
-            elif file_suffix == SRT:
-                cwd_srt_files.append(file)
-
-        else:
-            # special system file (symlink, socket, device, etc.)
-            continue
-
-
 if __name__ == "__main__":
     try:
         args = sys.argv[1:]
@@ -187,30 +87,86 @@ if __name__ == "__main__":
             sys.exit(1)
 
         directory = Path(sys.argv[1])
+        recursive_directory_paths = directory.rglob("*")
+        directory_map = {}
+        directory_map[directory] = { MP4: [], SRT: [] }  # init with provided dir
 
-        all_paths = directory.rglob("*")
-
-        dictionary = {}
-        dictionary[directory] = {MP4: [], SRT: []}  # given directory
-
-        for path in all_paths:
+        # map all mp4 and srt in a python dictionary for less I/O and quicker access
+        for path in recursive_directory_paths:
+            # only consider regular files
             if not path.is_file():
                 continue
 
+            # reassign variables for better comprehension
             file = path
             file_dir = file.parent
 
-            if file_dir not in dictionary:
-                dictionary[file_dir] = {MP4: [], SRT: []}
+            # create a key for the files in the file's directory if not present
+            if file_dir not in directory_map:
+                directory_map[file_dir] = {MP4: [], SRT: []}
 
+            # append accordingly
             if is_filetype(MP4, file):
-                dictionary[file_dir][MP4] = dictionary[file.parent][MP4] + [file]
+                directory_map[file_dir][MP4].append(file)
             elif is_filetype(SRT, file):
-                dictionary[file_dir][SRT] = dictionary[file.parent][SRT] + [file]
+                directory_map[file_dir][SRT].append(file)
 
-        pprint(dictionary)
+        # once all relevant paths are loaded into memory, check the mp4 files for relevant srt files
+        for folder_path, buckets in directory_map.items():
+            mp4_files = buckets[MP4]
+            srt_files = buckets[SRT]
 
-        # walk_directory(directory)
+            # without suffixes
+            existing_srt_stems = {srt.stem for srt in srt_files}
+
+            # Check if it's already paired with a subtitle file
+            for mp4 in mp4_files:
+                if mp4.stem in existing_srt_stems:
+                    print(f"{mp4.name}: {bcolors.BOLD}{bcolors.OKGREEN}OK{bcolors.ENDC}{bcolors.ENDC}")
+                    continue
+
+                mp4_cleaned_name = clean_filename(mp4)
+                for srt in srt_files[:]:
+                    srt_cleaned_name = clean_filename(srt)
+                    similarity = compute_str_similarity(mp4_cleaned_name, srt_cleaned_name)
+
+                    if similarity >= TOLERANCE:
+                        color_to_show = bcolors.WARNING
+                        if mp4_cleaned_name == srt_cleaned_name:
+                            color_to_show = bcolors.OKGREEN
+
+                        print()
+                        print(f"MP4: {mp4.name}\t({color_to_show}{mp4_cleaned_name}{bcolors.ENDC})")
+                        print(f"SRT: {srt.name}\t({color_to_show}{srt_cleaned_name}{bcolors.ENDC})")
+                        print(f"{similarity*100:.2f}% match")
+
+                        # ask user whether this srt is the one
+                        should_pair = input(f"pair? [y/n]: ").strip().lower()
+
+                        if should_pair == "y":
+                            srt_previous_filename = srt.name
+                            srt_new_filename = mp4.stem + SRT
+                            srt_new_path = srt.parent / srt_new_filename
+                            srt.rename(srt_new_path)
+                            print(f"{srt_previous_filename} renamed to {srt_new_filename}")
+                            print()
+
+                            # remove srt from options
+                            srt_files.remove(srt)
+
+                            # update the set
+                            existing_srt_stems.add(mp4.stem)
+
+                            # skip other choices
+                            break
+                        elif should_pair == "n":
+                            print()
+                        else:
+                            print(
+                                f"{bcolors.BOLD}{bcolors.FAIL}Invalid choice.{bcolors.ENDC}{bcolors.ENDC}"
+                            )
+                            print()
+
     except KeyboardInterrupt as e:
         print()
         sys.exit(0)
